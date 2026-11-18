@@ -24,6 +24,7 @@ from app.geo import distancia_rua_km
 from app.models import Encarte, ItemGenerico, Mercado, Preco, Produto
 from app.recommender import recomendar
 from app.schemas import PedidoRecomendacao, PrecosDono, RespostaRecomendacao
+from app.agente import RequisicaoAgente, RespostaAgente, executar_agente
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 if not STATIC_DIR.exists():
@@ -399,3 +400,6 @@ def precos_da_rede(
     if not ids:
         raise HTTPException(404, "Nenhuma loja dessa rede")
     return _gravar_precos_dono(session, list(ids), corpo)
+
+from app.agente import router as agente_router
+app.include_router(agente_router)

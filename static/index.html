@@ -498,6 +498,140 @@ $("resumo").onclick = e => {
 
 carregarMercados();
 buscar("");
+
+// ================= INTERFACE DO AGENTE DE IA =================
+(function iniciarWidgetAgente() {
+  const estilo = document.createElement("style");
+  estilo.textContent = `
+    .card-agente {
+      background: linear-gradient(135deg, #eef3ff 0%, #fff1e8 100%);
+      border: 2px solid var(--azul);
+      position: relative;
+    }
+    .badge-ia {
+      background: var(--azul); color: #fff; font-size: .72rem; font-weight: 800;
+      padding: 3px 9px; border-radius: 999px; margin-left: auto; letter-spacing: .4px;
+      text-transform: uppercase;
+    }
+    .agente-desc { margin: -6px 0 10px; font-size: .88rem; color: var(--suave); }
+    .agente-input {
+      width: 100%; min-height: 68px; padding: 11px 12px; border: 1px solid var(--borda);
+      border-radius: 12px; font-family: inherit; font-size: .95rem; resize: vertical;
+      outline: none; background: #fff;
+    }
+    .agente-input:focus { border-color: var(--azul); box-shadow: 0 0 0 3px rgba(18,58,140,.12); }
+    .agente-linha-orc {
+      display: flex; gap: 8px; align-items: center; margin-top: 8px;
+    }
+    .agente-linha-orc input {
+      width: 120px; padding: 9px 10px; border: 1px solid var(--borda);
+      border-radius: 10px; font-size: .92rem; background: #fff;
+    }
+    .btn-agente {
+      flex: 1; border: 0; border-radius: 10px; padding: 10px 14px;
+      background: var(--azul); color: #fff; font-weight: 700; font-size: .95rem;
+      cursor: pointer; transition: background .15s;
+    }
+    .btn-agente:hover:not(:disabled) { background: var(--azul-escuro); }
+    .btn-agente:disabled { opacity: .55; cursor: default; }
+    .agente-exemplos { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .chip-ex {
+      font-size: .76rem; background: #fff; border: 1px solid var(--borda);
+      border-radius: 999px; padding: 4px 10px; cursor: pointer; color: var(--azul-escuro);
+    }
+    .chip-ex:hover { border-color: var(--laranja); color: var(--laranja); }
+    .agente-resp {
+      margin-top: 12px; background: #fff; border: 1px solid var(--borda);
+      border-radius: 12px; padding: 12px; font-size: .9rem; line-height: 1.45;
+    }
+    .agente-passos {
+      margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--borda);
+      font-size: .78rem; color: var(--suave);
+    }
+    .agente-passo-item {
+      background: var(--fundo); border-radius: 6px; padding: 4px 8px; margin-top: 4px;
+      font-family: ui-monospace, Consolas, monospace;
+    }
+  `;
+  document.head.appendChild(estilo);
+
+  const secaoEsq = document.querySelector("main > section");
+  if (!secaoEsq) return;
+
+  const cardAgente = document.createElement("div");
+  cardAgente.className = "card card-agente";
+  cardAgente.style.marginBottom = "16px";
+  cardAgente.innerHTML = `
+    <h2 class="passo">
+      <b>🤖</b> Agente de IA
+      <span class="badge-ia">SQLModel + Tools</span>
+    </h2>
+    <p class="agente-desc">Peça sua feira escrevendo normalmente. O agente consulta o banco, calcula a rota e ajusta ao seu orçamento.</p>
+    <textarea id="msgAgente" class="agente-input" placeholder="Ex: Quero comprar 2 pacotes de arroz, feijão, café, leite e frango, mas só tenho 65 reais"></textarea>
+    <div class="agente-exemplos">
+      <span class="chip-ex" data-txt="Quero 2 pacotes de arroz, feijão, café, leite e frango, só tenho 65 reais">💡 Exemplo com orçamento (R$ 65)</span>
+      <span class="chip-ex" data-txt="Monte uma cesta básica completa com arroz, feijão, óleo, açúcar, café e macarrão">🛒 Cesta básica via IA</span>
+    </div>
+    <div class="agente-linha-orc">
+      <input type="number" id="orcAgente" placeholder="Orçamento R$" min="1" step="5" title="Limite opcional de gasto em R$">
+      <button class="btn-agente" id="btnEnviarAgente">✨ Perguntar ao Agente</button>
+    </div>
+    <div id="boxRespAgente" class="agente-resp" hidden></div>
+  `;
+  secaoEsq.insertBefore(cardAgente, secaoEsq.firstChild);
+
+  cardAgente.querySelectorAll(".chip-ex").forEach(c => {
+    c.onclick = () => { $("msgAgente").value = c.dataset.txt; };
+  });
+
+  $("btnEnviarAgente").onclick = async () => {
+    const msg = $("msgAgente").value.trim();
+    if (msg.length < 2) return;
+    const btn = $("btnEnviarAgente");
+    const box = $("boxRespAgente");
+    const orcVal = parseFloat($("orcAgente").value);
+
+    btn.disabled = true;
+    btn.textContent = "🤖 Agente raciocinando...";
+    box.hidden = false;
+    box.innerHTML = `<div class="carregando">Consultando SQLModel e calculando rotas...</div>`;
+
+    try {
+      const resp = await fetch("/api/agente", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mensagem: msg,
+          lat: local.lat,
+          lon: local.lon,
+          raio_km: getRaio(),
+          orcamento_max: Number.isFinite(orcVal) && orcVal > 0 ? orcVal : null
+        })
+      });
+      if (!resp.ok) throw new Error("Falha na rota /api/agente");
+      const dados = await resp.json();
+
+      const passosHtml = (dados.passos || []).map((p, idx) =>
+        `<div class="agente-passo-item"><b>${idx + 1}. [${esc(p.ferramenta)}]</b> → ${esc(p.resultado_resumido)}</div>`
+      ).join("");
+
+      box.innerHTML = `
+        <div>${esc(dados.resposta).replace(/\*\*(.*?)\*\*/g, "<b>$1</b>")}</div>
+        ${passosHtml ? `<div class="agente-passos"><b>⚙️ Ferramentas acionadas pelo Agente (${esc(dados.modo)}):</b>${passosHtml}</div>` : ""}
+      `;
+
+      if (dados.recomendacao) {
+        renderResultado(dados.recomendacao);
+        if (window.innerWidth < 940) $("resultado").scrollIntoView({ behavior: "smooth" });
+      }
+    } catch (e) {
+      box.innerHTML = `<div class="erro">Não foi possível conectar ao Agente. Verifique se o servidor está rodando.</div>`;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "✨ Perguntar ao Agente";
+    }
+  };
+})();
 </script>
 </body>
 </html>
